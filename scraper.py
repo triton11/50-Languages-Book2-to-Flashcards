@@ -1,7 +1,8 @@
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 import csv
 import re
+import time
 from urllib.parse import urlparse, quote
 
 def anki_file(filename):
@@ -9,27 +10,30 @@ def anki_file(filename):
 
 def scrape_lesson_data(start_lesson, end_lesson, output_file, language_code):
     # Define the base URL and the headers for the CSV
-    # Replace with your language URL 
+    # Replace with your language URL
     base_url = "https://www.50languages.com/em/learn/phrasebook-lessons/{}/" + language_code
-    headers = ["Index", "Lesson Title", "English text", "Phonetic translation", "Original language translation", "Audio File Name", "Audio URL"]
+    session = cloudscraper.create_scraper()
+    csv_headers = ["Index", "Lesson Title", "English text", "Phonetic translation", "Original language translation", "Audio File Name", "Audio URL"]
 
     # Open the CSV file for writing
     with open(output_file, mode="w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(headers)
+        writer.writerow(csv_headers)
 
         index_count = 0
 
         # Loop through each lesson page
         for lesson in range(start_lesson, end_lesson + 1):
             url = base_url.format(lesson)
-            response = requests.get(url)
+            time.sleep(1)  # Delay between requests
+            response = session.get(url)
             
             if response.status_code != 200:
                 print(f"Failed to retrieve lesson {lesson} (status code: {response.status_code})")
                 continue
 
-            soup = BeautifulSoup(response.content, "html.parser")
+            response.encoding = 'utf-8'
+            soup = BeautifulSoup(response.text, "html.parser")
 
             # Extract lesson number and name information
             lesson_div = soup.find("div", class_="flex-row text-center bg-default no_print phrasebook_lesson_mainn_img")
@@ -109,8 +113,10 @@ def scrape_lesson_data(start_lesson, end_lesson, output_file, language_code):
 
                     # Extract phonetic translation and original language translation
                     translation_cell = row.find("td", class_="left-dr target-phrase")
-                    phonetic_span = translation_cell.find("span", class_="transliteration-text", id=re.compile(r"^visible_\d+")) if translation_cell else None
-                    original_span = translation_cell.find("span", class_="text-blue", id=re.compile(r"^visible_\d+")) if translation_cell else None
+                    # Phonetic: has both transliteration-text and default_phrase classes
+                    phonetic_span = translation_cell.find("span", class_=lambda c: c and "transliteration-text" in c and "default_phrase" in c) if translation_cell else None
+                    # Original: has default_phrase but NOT transliteration-text
+                    original_span = translation_cell.find("span", class_=lambda c: c and "default_phrase" in c and "transliteration-text" not in c) if translation_cell else None
 
                     phonetic_translation = phonetic_span.get_text(strip=True) if phonetic_span else ""
                     original_translation = original_span.get_text(strip=True) if original_span else ""
